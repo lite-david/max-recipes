@@ -22,7 +22,8 @@ from .matrix_multiplication import (
     naive_matrix_multiplication,
     naive_matrix_multiplication_cpu,
 )
-
+from .vec_add import _vector_addition_gpu, _vector_addition_cpu
+from .exp2 import _exp2_gpu
 
 @compiler.register("matrix_multiplication")
 struct MatrixMultiplication[algorithm: StaticString]:
@@ -97,7 +98,7 @@ struct MatrixMultiplication[algorithm: StaticString]:
             elif algorithm == "optimized":
                 alias BM = 128
                 alias BN = 128
-                alias BK = 8
+                alias BK = 32
                 alias TM = 8
                 alias TN = 8
                 alias NUM_THREADS = (BM * BN) // (TM * TN)
@@ -126,3 +127,56 @@ struct MatrixMultiplication[algorithm: StaticString]:
 
         else:
             naive_matrix_multiplication_cpu(out, a, b)
+
+@compiler.register("vector_addition")
+struct VectorAddition:
+    @staticmethod
+    fn execute[
+        # The kind of device this will be run on: "cpu" or "gpu"
+        target: StaticString,
+    ](
+        out: OutputTensor[rank=1],
+        lhs: InputTensor[type = out.type, rank = out.rank],
+        rhs: InputTensor[type = out.type, rank = out.rank],
+        # the context is needed for some GPU calls
+        ctx: DeviceContextPtr,
+    ) raises:
+        # For a simple elementwise operation like this, the `foreach` function
+        # does much more rigorous hardware-specific tuning. We recommend using
+        # that abstraction, with this example serving purely as an illustration
+        # of how lower-level functions can be used to program GPUs via Mojo.
+
+        # At graph compilation time, we will know what device we are compiling
+        # this operation for, so we can specialize it for the target hardware.
+        @parameter
+        if target == "cpu":
+            _vector_addition_cpu(out, lhs, rhs, ctx)
+        elif target == "gpu":
+            _vector_addition_gpu(out, lhs, rhs, ctx)
+        else:
+            raise Error("No known target:", target)
+
+@compiler.register("exp2")
+struct Exp2:
+    @staticmethod
+    fn execute[
+        # The kind of device this will be run on: "cpu" or "gpu"
+        target: StaticString,
+    ](
+        out: OutputTensor[rank=1],
+        lhs: InputTensor[type = out.type, rank = out.rank],
+        # the context is needed for some GPU calls
+        ctx: DeviceContextPtr,
+    ) raises:
+        # For a simple elementwise operation like this, the `foreach` function
+        # does much more rigorous hardware-specific tuning. We recommend using
+        # that abstraction, with this example serving purely as an illustration
+        # of how lower-level functions can be used to program GPUs via Mojo.
+
+        # At graph compilation time, we will know what device we are compiling
+        # this operation for, so we can specialize it for the target hardware.
+        @parameter
+        if target == "gpu":
+            _exp2_gpu(out, lhs, ctx)
+        else:
+            raise Error("No known target:", target)

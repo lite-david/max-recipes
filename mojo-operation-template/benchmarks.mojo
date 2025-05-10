@@ -28,7 +28,7 @@ from max.tensor import (
 )
 from memory import AddressSpace
 from memory import UnsafePointer
-from operations.graph_operation import MatrixMultiplication
+from operations.graph_operation import MatrixMultiplication, VectorAddition, Exp2
 from random import rand
 from runtime.asyncrt import DeviceContextPtr
 from sys import sizeof, has_amd_gpu_accelerator, has_nvidia_gpu_accelerator
@@ -101,9 +101,9 @@ fn _static_spec[
 
 
 def matmul():
-    alias M = 1028
-    alias K = 1028
-    alias N = 1028
+    alias M = 2048*304
+    alias K = 1024
+    alias N = 1024
 
     alias rank = 2
     alias dtype = DType.float32
@@ -114,6 +114,10 @@ def matmul():
     alias b_spec = _static_spec[dtype, rank](shape=(K, N), strides=(N, 1))
     alias c_spec = _static_spec[dtype, rank](shape=(M, N), strides=(N, 1))
 
+    alias lhs_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+    alias rhs_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+    alias out_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+
     var cpu_ctx = DeviceContext(api="cpu")
 
     var a = _BenchTensor[Input, a_spec](cpu_ctx).rand()
@@ -123,6 +127,7 @@ def matmul():
     var bench = Bench()
     var flops = ThroughputMeasure(BenchMetric.flops, FLOPS)
     var elements = ThroughputMeasure(BenchMetric.elements, M * N)
+    var bytes = ThroughputMeasure(BenchMetric.bytes, 3*M * sizeof[dtype]())
 
     @parameter
     @always_inline
@@ -136,7 +141,7 @@ def matmul():
 
         bencher.iter[run_bench]()
 
-    bench.bench_function[bench_cpu](BenchId("cpu", "naive"), flops, elements)
+    # bench.bench_function[bench_cpu](BenchId("cpu", "naive"), flops, elements)
 
     @parameter
     if has_amd_gpu_accelerator() or has_nvidia_gpu_accelerator():
@@ -144,6 +149,10 @@ def matmul():
         var a_dev = _BenchTensor[Input, a_spec](gpu_ctx).rand()
         var b_dev = _BenchTensor[Input, b_spec](gpu_ctx).rand()
         var c_dev = _BenchTensor[Output, c_spec](gpu_ctx).rand()
+
+        var lhs_dev = _BenchTensor[Input, lhs_spec](gpu_ctx).rand()
+        var rhs_dev = _BenchTensor[Input, rhs_spec](gpu_ctx).rand()
+        var out_dev = _BenchTensor[Output, out_spec](gpu_ctx).rand()
 
         @parameter
         def bench_matmul_kernel[impl: StaticString]():
@@ -163,12 +172,129 @@ def matmul():
                 BenchId("gpu", String(impl)), flops, elements
             )
 
-        bench_matmul_kernel["naive"]()
-        bench_matmul_kernel["optimized"]()
+    
+        @parameter
+        def bench_vec_add_kernel[impl: StaticString]():
+            @parameter
+            @always_inline
+            fn bench_gpu(mut bench: Bencher) raises:
+                @parameter
+                @always_inline
+                fn kernel_launch(gpu_ctx: DeviceContext) raises:
+                    VectorAddition.execute[target="gpu"](
+                        out_dev.tensor, lhs_dev.tensor, rhs_dev.tensor, gpu_ctx
+                    )
+
+                bench.iter_custom[kernel_launch](gpu_ctx)
+
+            bench.bench_function[bench_gpu](
+                BenchId("gpu", String(impl)), flops, elements, bytes
+            )
+
+
+        #bench_matmul_kernel["naive"]()
+        #bench_matmul_kernel["optimized"]()
+
+        bench_vec_add_kernel["naive"]()
+
+    bench.config.verbose_metric_names = False
+    print(bench)
+
+def vecadd():
+    alias M = 1024*304*1024
+    alias dtype = DType.float32
+
+    alias lhs_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+    alias rhs_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+    alias out_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+
+    var cpu_ctx = DeviceContext(api="cpu")
+
+    var bench = Bench()
+    var elements = ThroughputMeasure(BenchMetric.elements, M *3)
+    var bytes = ThroughputMeasure(BenchMetric.bytes, 3*M * sizeof[dtype]())
+
+
+    @parameter
+    if has_amd_gpu_accelerator() or has_nvidia_gpu_accelerator():
+        var gpu_ctx = DeviceContext(device_id=DEVICE_ID)
+
+        var lhs_dev = _BenchTensor[Input, lhs_spec](gpu_ctx).rand()
+        var rhs_dev = _BenchTensor[Input, rhs_spec](gpu_ctx).rand()
+        var out_dev = _BenchTensor[Output, out_spec](gpu_ctx).rand()
+
+        @parameter
+        def bench_vec_add_kernel():
+            @parameter
+            @always_inline
+            fn bench_gpu(mut bench: Bencher) raises:
+                @parameter
+                @always_inline
+                fn kernel_launch(gpu_ctx: DeviceContext) raises:
+                    VectorAddition.execute[target="gpu"](
+                        out_dev.tensor, lhs_dev.tensor, rhs_dev.tensor, gpu_ctx
+                    )
+
+                bench.iter_custom[kernel_launch](gpu_ctx)
+
+            bench.bench_function[bench_gpu](
+                BenchId("gpu"), elements, bytes
+            )
+
+
+        bench_vec_add_kernel()
+
+    bench.config.verbose_metric_names = False
+    print(bench)
+
+def exp2():
+    alias M = 64*4*304
+    alias dtype = DType.float32
+
+    alias lhs_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+    alias out_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
+
+    var cpu_ctx = DeviceContext(api="cpu")
+
+    var bench = Bench()
+    var elements = ThroughputMeasure(BenchMetric.elements, M *3)
+    var bytes = ThroughputMeasure(BenchMetric.bytes, 3*M * sizeof[dtype]())
+
+
+    @parameter
+    if has_amd_gpu_accelerator() or has_nvidia_gpu_accelerator():
+        var gpu_ctx = DeviceContext(device_id=DEVICE_ID)
+
+        var lhs_dev = _BenchTensor[Input, lhs_spec](gpu_ctx).rand()
+        var out_dev = _BenchTensor[Output, out_spec](gpu_ctx).rand()
+
+        @parameter
+        def bench_exp2_kernel():
+            @parameter
+            @always_inline
+            fn bench_gpu(mut bench: Bencher) raises:
+                @parameter
+                @always_inline
+                fn kernel_launch(gpu_ctx: DeviceContext) raises:
+                    Exp2.execute[target="gpu"](
+                        out_dev.tensor, lhs_dev.tensor, gpu_ctx
+                    )
+
+                bench.iter_custom[kernel_launch](gpu_ctx)
+
+            bench.bench_function[bench_gpu](
+                BenchId("gpu"), elements, bytes
+            )
+
+
+        bench_exp2_kernel()
 
     bench.config.verbose_metric_names = False
     print(bench)
 
 
+
 def main():
-    matmul()
+    #matmul()
+    #vecadd()
+    exp2()
