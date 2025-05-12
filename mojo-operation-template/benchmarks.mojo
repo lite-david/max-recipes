@@ -248,7 +248,7 @@ def vecadd():
     print(bench)
 
 def exp2():
-    alias M = 64*4*304
+    alias M = 64*16*304
     alias dtype = DType.float32
 
     alias lhs_spec = _static_spec[dtype, 1](shape=(M), strides=(1))
@@ -257,8 +257,8 @@ def exp2():
     var cpu_ctx = DeviceContext(api="cpu")
 
     var bench = Bench()
-    var elements = ThroughputMeasure(BenchMetric.elements, M *3)
-    var bytes = ThroughputMeasure(BenchMetric.bytes, 3*M * sizeof[dtype]())
+    var elements = ThroughputMeasure(BenchMetric.elements, M)
+    var bytes = ThroughputMeasure(BenchMetric.bytes, M * sizeof[dtype]())
 
 
     @parameter

@@ -57,8 +57,8 @@ fn _exp2_gpu(
             var idx = IndexList[out.rank](tid)
             var loadval = lhs.load[1](idx)
             var result = exp2(loadval)
-            for i in range(999):
-                var result = exp2(result-1)
+            for _ in range(9999):
+                result = exp2(result-1)
             out.store[1](idx, result)
 
     # The vector is divided up into blocks, making sure there's an extra
@@ -68,7 +68,7 @@ fn _exp2_gpu(
     # The GPU function is compiled and enqueued to run on the GPU across the
     # 1-D vector, split into blocks of `BLOCK_SIZE` width.
 
-    gpu_ctx.compile_function[exp2_gpu_kernel, dump_asm=True]()
+    #gpu_ctx.compile_function[exp2_gpu_kernel, dump_asm=True]()
     gpu_ctx.enqueue_function[exp2_gpu_kernel](
         vector_length, grid_dim=num_blocks, block_dim=BLOCK_SIZE
     )
